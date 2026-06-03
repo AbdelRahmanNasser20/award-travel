@@ -20,7 +20,10 @@ skill (Seats.aero Partner API logic).
     **Seats.aero Partner API**. Open design question: port the skill's Python logic to a
     TypeScript API route (cleaner for a web app) vs. shelling out to the Python script.
 
-## The `find-cheap-award-flights` skill (summary; source lives locally, not in repo)
+## The `find-cheap-award-flights` skill (vendored into this repo)
+The skill is now committed at **`skills/find-cheap-award-flights/`**
+(`SKILL.md` + `scripts/search_seats_aero.py`) so the planner can read and copy it directly.
+Summary of its mechanics:
 Two methods:
 - **Method A (preferred): Seats.aero Partner API**
   - `GET https://seats.aero/partnerapi/search`
