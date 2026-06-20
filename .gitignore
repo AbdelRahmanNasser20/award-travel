@@ -29,3 +29,13 @@ yarn-error.log*
 *.pem
 coverage/
 .turbo/
+
+# python
+__pycache__/
+*.pyc
+
+# award-travel live tool — generated output, secrets, browser profile
+skills/find-cheap-award-flights/scripts/reports/
+skills/find-cheap-award-flights/scripts/favorites/
+chrome-profile/
+.award-travel/

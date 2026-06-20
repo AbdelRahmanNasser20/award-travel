@@ -1,0 +1,12 @@
+# Core (Phase 1)
+playwright>=1.44
+python-dotenv>=1.0
+
+# Phase 2 — Groq LLM extraction fallback
+groq>=0.9
+
+# Phase 3 — local web app
+fastapi>=0.110
+uvicorn>=0.29
+
+# After install run once: playwright install chrome
