@@ -1,244 +1,118 @@
 #!/usr/bin/env python3
 """Frontier (Frontier Miles) award-flight scraper — Playwright SYNC API.
 
-SKILL.md notes used here:
-  - Entry point: https://www.flyfrontier.com (Frontier Miles).
-  - Enable the "Frontier Miles" toggle (award/miles fare display) BEFORE reading
-    prices, otherwise the page shows cash dollars instead of miles.
-  - Frontier only searches ONE airport at a time, so the runner loops each origin
-    airport and de-dupes the pooled rows with airports.merge_dedupe (hence
-    SUPPORTS_METRO = False — query.origin_airports holds exactly one airport).
-  - Iterate query.dates() and read the cheapest miles per flight per date.
-  - Frontier Miles is effectively single-cabin economy, so the miles value goes in
-    YMileageCost; there are no premium-cabin award buckets.
+VERIFIED live (2026-06): flyfrontier.com homepage has a clean booking form (not
+bot-blocked):
+  #origin / #destination        airport inputs (autocomplete)
+  #departureDate                depart date
+  input[name=searchType]:
+     #searchDollars / #searchPoints   cash vs Frontier Miles (we pick Points)
+then the search submits to Frontier's Navitaire booking engine results page.
 
-CANNOT be tested live, so every selector below is a best-effort guess and is marked
-`# VERIFY`. Any failure returns [] and warns on stderr so one airline never sinks
-the whole run.
+We drive the form, submit, and LLM-extract the miles rows per date (Navitaire DOM is
+volatile; the LLM is robust). Needs GROQ_API_KEY; otherwise reports 0 for Frontier.
+
+KNOWN LIMITATION (observed live 2026-06): Frontier's Search button stays DISABLED until
+the form passes its own validation (origin/dest autocomplete confirmed + a real
+datepicker day selected). Automated field entry doesn't reliably satisfy this, so the
+submit often can't fire. Best-effort; use seats.aero (cached) for reliable Frontier.
+
+SUPPORTS_METRO=False: the runner loops each airport, so origin_search() is one code.
 """
 import sys
 
-from browser.session import human_type, human_pause, goto
+from browser.session import human_pause, goto
+from browser import llm_extract
 
 SUPPORTS_METRO = False
-HOME_URL = "https://www.flyfrontier.com"
+HOME_URL = "https://www.flyfrontier.com/"
+
+_SEL_ORIGIN = "#origin"            # VERIFIED
+_SEL_DEST = "#destination"         # VERIFIED
+_SEL_DATE = "#departureDate"       # VERIFIED
+_SEL_POINTS = "#searchPoints"      # VERIFIED (name=searchType)
+_SEL_SUBMIT = "button[type='submit'], button:has-text('Search'), #searchButton"  # VERIFY
+# Navitaire results land on a booking.flyfrontier.com URL; detect either the host or rows.
+_SEL_RESULTS = "[class*='journey'], [class*='fare'], [class*='flight'], [class*='result']"  # VERIFY
 
 
-def _warn(msg):
-    print(f"[frontier] {msg}", file=sys.stderr)
-
-
-def _miles_to_int(text):
-    """'12,300 miles' / '12.3k' -> int miles, or None."""
-    if not text:
-        return None
-    t = str(text).lower().replace(",", "").strip()
-    digits = ""
-    for ch in t:
-        if ch.isdigit():
-            digits += ch
-        elif ch == "." and "k" in t:
-            digits += "."
-    if not digits:
-        return None
+def signature(page) -> bool:
     try:
-        val = float(digits)
-        if "k" in t and val < 1000:
-            val *= 1000
-        return int(round(val))
-    except ValueError:
-        return None
-
-
-def _cash_to_float(text):
-    """'$5.60' / 'USD 11.20' -> 5.6, or 0.0."""
-    if not text:
-        return 0.0
-    keep = "".join(c for c in str(text) if c.isdigit() or c == ".")
-    try:
-        return float(keep) if keep else 0.0
-    except ValueError:
-        return 0.0
-
-
-def _hhmm(text):
-    """'7:05 AM' -> '07:05' (24h). Best-effort; returns '' on failure."""
-    if not text:
-        return ""
-    t = str(text).strip().upper()
-    ampm = None
-    if "AM" in t:
-        ampm, t = "AM", t.replace("AM", "")
-    elif "PM" in t:
-        ampm, t = "PM", t.replace("PM", "")
-    t = t.strip()
-    if ":" not in t:
-        return ""
-    try:
-        h, m = t.split(":")[0:2]
-        h, m = int(h), int(m[:2])
-    except (ValueError, IndexError):
-        return ""
-    if ampm == "PM" and h != 12:
-        h += 12
-    if ampm == "AM" and h == 12:
-        h = 0
-    return f"{h:02d}:{m:02d}"
-
-
-def _within_window(depart_hhmm, query):
-    if not depart_hhmm:
-        return True
-    try:
-        h, m = depart_hhmm.split(":")
-        t = __import__("datetime").time(int(h), int(m))
-    except (ValueError, AttributeError):
-        return True
-    if query.depart_after and t < query.depart_after:
+        return "booking" in page.url or page.locator(_SEL_RESULTS).count() > 0
+    except Exception:
         return False
-    if query.depart_before and t > query.depart_before:
-        return False
-    return True
 
 
-def _enable_miles_toggle(page):
-    """Flip the Frontier Miles / award-fare toggle so prices show in miles."""
-    selectors = [
-        "input[type='checkbox'][name*='miles' i]",          # VERIFY
-        "button:has-text('Frontier Miles')",                # VERIFY
-        "[data-test='miles-toggle']",                       # VERIFY
-        "label:has-text('Use Frontier Miles')",             # VERIFY
-        "input#searchWithMiles",                            # VERIFY
-    ]
-    for sel in selectors:
-        try:
-            loc = page.locator(sel).first
-            if loc.count() > 0 and loc.is_visible():
-                loc.click()
-                human_pause()
-                return True
-        except Exception:
-            continue
-    return False
-
-
-def signature(page):
-    """Cheap presence check: are Frontier's result selectors on the page?"""
-    selectors = [
-        "[data-test='flight-card']",      # VERIFY
-        ".flight-results",                # VERIFY
-        "[class*='FlightCard']",          # VERIFY
-        "li[class*='flight']",            # VERIFY
-    ]
-    for sel in selectors:
-        try:
-            if page.locator(sel).count() > 0:
-                return True
-        except Exception:
-            continue
-    return False
-
-
-def _search_one_date(page, query, origin, dest, d):
-    """Run a single-date one-way search and return raw rows for that date."""
-    rows = []
-    date_str = d.isoformat()
-    # Deep link to the one-way miles search for this date. # VERIFY url shape.
-    url = (
-        f"{HOME_URL}/booking/select-flights"
-        f"?origin={origin}&destination={dest}"
-        f"&departureDate={date_str}&adults=1&fareType=miles&type=oneway"
-    )
-    deeplink = url
+def _select_points(page):
     try:
-        goto(page, url)
+        pts = page.locator(_SEL_POINTS).first
+        if pts.count():
+            pts.check(force=True)
+            human_pause()
     except Exception as e:
-        _warn(f"goto failed for {origin}->{dest} {date_str}: {e}")
-        # Fall back to typing into the form on the home page. # VERIFY selectors.
+        print(f"[frontier] points toggle failed: {e}", file=sys.stderr)
+
+
+def _fill_airport(page, sel, code):
+    box = page.locator(sel).first
+    box.click()
+    for _ in range(4):
+        box.press("Backspace")
+    for ch in code:
+        box.type(ch, delay=120)
+    human_pause(0.8, 1.4)
+    try:
+        opt = page.locator("[role='option'], li.ui-menu-item, .typeahead__item").first
+        if opt.count() > 0 and opt.is_visible():
+            opt.click()
+        else:
+            box.press("ArrowDown"); box.press("Enter")
+    except Exception:
         try:
+            box.press("Enter")
+        except Exception:
+            pass
+    human_pause()
+
+
+def scrape(page, query) -> list:
+    out = []
+    try:
+        origin = query.origin_search()
+        dest = query.dest_search()
+        for d in query.dates():
             goto(page, HOME_URL)
-            human_type(page.locator("input[name='origin']").first, origin)          # VERIFY
-            human_pause()
-            human_type(page.locator("input[name='destination']").first, dest)       # VERIFY
-            human_pause()
-            human_type(page.locator("input[name='departureDate']").first, date_str)  # VERIFY
-            human_pause()
-            page.locator("button[type='submit']").first.click()                     # VERIFY
-            human_pause(1.5, 3.0)
-        except Exception as e2:
-            _warn(f"form fallback failed {origin}->{dest} {date_str}: {e2}")
-            return rows
-
-    _enable_miles_toggle(page)
-    human_pause(1.0, 2.0)
-
-    try:
-        cards = page.locator("[data-test='flight-card']")  # VERIFY
-        if cards.count() == 0:
-            cards = page.locator("[class*='FlightCard']")  # VERIFY
-        n = cards.count()
-    except Exception as e:
-        _warn(f"no flight cards {origin}->{dest} {date_str}: {e}")
-        return rows
-
-    for i in range(n):
-        try:
-            card = cards.nth(i)
-
-            def txt(sel):
-                try:
-                    el = card.locator(sel).first
-                    return el.inner_text().strip() if el.count() > 0 else ""
-                except Exception:
-                    return ""
-
-            depart = _hhmm(txt("[data-test='depart-time']"))   # VERIFY
-            arrive = _hhmm(txt("[data-test='arrive-time']"))   # VERIFY
-            miles = _miles_to_int(txt("[data-test='miles-price']"))  # VERIFY
-            taxes = _cash_to_float(txt("[data-test='taxes']"))       # VERIFY
-            flight_no = txt("[data-test='flight-number']") or "F9"   # VERIFY
-            stops_txt = txt("[data-test='stops']").lower()           # VERIFY
-            direct = ("nonstop" in stops_txt) or ("0 stop" in stops_txt) or (stops_txt == "")
-
-            if miles is None or miles <= 0:
-                continue
-            if not _within_window(depart, query):
-                continue
-
-            rows.append({
-                "Source": "frontier",
-                "YMileageCost": int(miles),
-                "TotalTaxes": taxes,
-                "Date": date_str,
-                "Direct": bool(direct),
-                "OriginAirport": origin,
-                "DestinationAirport": dest,
-                "FlightNumbers": flight_no.replace(" ", ""),
-                "DepartTime": depart,
-                "ArriveTime": arrive,
-                "DeepLink": deeplink,
-            })
-        except Exception as e:
-            _warn(f"row parse error {origin}->{dest} {date_str} #{i}: {e}")
-            continue
-    return rows
-
-
-def scrape(page, query):
-    """Loop query.dates() for the single origin/dest pair and return raw rows."""
-    try:
-        origin = query.origin_airports[0]  # exactly one — runner loops airports
-    except (IndexError, AttributeError) as e:
-        _warn(f"no origin airport: {e}")
-        return []
-
-    all_rows = []
-    try:
-        for dest in query.dest_airports:
-            for d in query.dates():
-                all_rows.extend(_search_one_date(page, query, origin, dest, d))
+            human_pause(1.2, 2.0)
+            _select_points(page)
+            _fill_airport(page, _SEL_ORIGIN, origin)
+            _fill_airport(page, _SEL_DEST, dest)
+            try:
+                box = page.locator(_SEL_DATE).first
+                box.click()
+                box.fill(d.strftime("%m/%d/%Y"))
                 human_pause()
+                # close any datepicker overlay
+                page.keyboard.press("Escape")
+            except Exception as e:
+                print(f"[frontier] date fill failed: {e}", file=sys.stderr)
+            try:
+                page.locator(_SEL_SUBMIT).first.click()
+            except Exception as e:
+                print(f"[frontier] submit failed: {e}", file=sys.stderr)
+                continue
+            try:
+                page.wait_for_selector(_SEL_RESULTS, timeout=30000)
+                human_pause(2.0, 3.0)
+            except Exception:
+                print(f"[frontier] results did not render for {d}", file=sys.stderr)
+                continue
+            for r in llm_extract.extract_from_page(page, query, "frontier"):
+                r["Date"] = d.isoformat()
+                r.setdefault("OriginAirport", origin)
+                r.setdefault("DestinationAirport", dest)
+                r["DeepLink"] = page.url
+                out.append(r)
+        return out
     except Exception as e:
-        _warn(f"scrape failed: {e}")
-        return []
-    return all_rows
+        print(f"[frontier] scrape failed: {e}", file=sys.stderr)
+        return out
