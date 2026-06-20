@@ -68,11 +68,52 @@ Endpoint reference (in case you need to call it directly):
 Program names for `sources`: `united`, `delta`, `american`, `aeroplan` (United partner via
 Chase), `jetblue`, `southwest`, `flyingblue`, `velocity`, etc. Map to the user's balances.
 
-## METHOD B — Browser automation (free, no subscription; slower, more fragile)
+## METHOD B — Live real-Chrome tool (`find_award.py`, real-time, no subscription)
 
-Use the Claude-in-Chrome tools to drive the user's browser through each airline's award
-search. Always toggle "Shop with miles / Award travel" ON. Search **one direction at a time**,
-scan the calendar/low-fare view for the cheapest day in the range, record miles + taxes.
+The repo ships an automated browser tool that drives the user's **real, already-logged-in
+Chrome profile** (Playwright, `channel="chrome"`) to read live miles prices off each airline
+site. This is the real-time path (the cached seats.aero API can be hours–days stale). Setup:
+
+```bash
+pip install -r requirements.txt && playwright install chrome
+cp scripts/.env.example scripts/.env      # set AWARD_CHROME_PROFILE (+ optional GROQ_API_KEY)
+```
+
+CLI (run from `scripts/`):
+
+```bash
+python find_award.py search --from NYC --to PHX --start 2026-07-13 --end 2026-07-19 \
+  --weekdays Wed,Thu --cabin economy --max-miles 17000 \
+  --airlines united,american,jetblue,southwest,frontier,delta
+python find_award.py favorite --last 1     # save flight (data + screenshot + page HTML)
+python find_award.py list                  # saved favorites + last-checked miles
+python find_award.py refresh --all         # reopen favorites, re-verify current miles + delta
+python find_award.py serve                 # roame-style web app at http://localhost:8000
+```
+
+How it works:
+- **Metro expansion** (`browser/airports.py`): NYC→JFK/LGA/EWR, DC→DCA/IAD/BWI, etc.
+  United/American/Delta/JetBlue search the metro together; **Southwest/Frontier** are searched
+  one airport at a time and de-duped (`SUPPORTS_METRO=False`).
+- **Per-airline scrapers** (`browser/airlines/*.py`) all return the raw Seats.aero row shape, so
+  results flow through the shared `award_common.rank`/`build_table`/`write_report` engine.
+- **Human-like pacing** (`browser/session.py`) and the user's real logged-in session (no stored
+  passwords).
+- **Groq LLM extraction fallback** (`browser/llm_extract.py`): if a scraper's selectors break,
+  and `GROQ_API_KEY` is set, the page HTML is trimmed + PII-scrubbed and a free Groq model
+  re-extracts the rows; it logs "LLM fallback fired — update selectors". Skipped if no key.
+- **Web app** (`web/`): roame-style search bar (From/To metro chips, day range, cabin, Live vs
+  cached SkyView toggle), result cards with ★-favorite, and a Favorites page with per-card +
+  Reload-all that streams live miles + delta over SSE. One real-Chrome browser, jobs queued.
+
+> Scraper selectors are best-effort and marked `# VERIFY`; expect a one-time tuning pass on the
+> first real run (the Groq fallback is the backstop). Airline anti-bot (United/Delta) may still
+> require an occasional manual login even on a real profile.
+
+### Manual fallback — Claude-in-Chrome
+If the automated tool isn't available, drive the user's browser by hand through each airline's
+award search. Toggle "Shop with miles / Award travel" ON, search **one direction at a time**,
+scan the calendar/low-fare view for the cheapest day, record miles + taxes.
 
 Award search entry points:
 - United — https://www.united.com (set "Book with miles" before searching)

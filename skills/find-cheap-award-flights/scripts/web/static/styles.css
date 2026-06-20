@@ -1,0 +1,71 @@
+/* Plain CSS components (Tailwind Play CDN can't @apply in external files).
+   Tailwind utilities used directly in index.html still work via the CDN. */
+:root {
+  --brand: #4f46e5; --brand-500: #6366f1; --brand-50: #eef2ff;
+  --ink: #0b1020; --line: #e2e8f0; --muted: #64748b;
+}
+
+.lbl { display:block; font-size:11px; font-weight:600; color:var(--muted); margin-bottom:4px; }
+
+.inp {
+  width:100%; border:1px solid var(--line); background:#fff; border-radius:12px;
+  padding:8px 12px; font-size:14px; color:var(--ink); outline:none;
+  transition:border-color .15s, box-shadow .15s;
+}
+.inp:focus { border-color:var(--brand-500); box-shadow:0 0 0 3px var(--brand-50); }
+
+.btn-primary {
+  border:0; border-radius:12px; background:var(--brand); color:#fff; cursor:pointer;
+  padding:9px 16px; font-size:14px; font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.06);
+  transition:background .15s, transform .05s;
+}
+.btn-primary:hover { background:var(--brand-500); }
+.btn-primary:active { transform:scale(.98); }
+
+.btn-ghost {
+  border:1px solid var(--line); border-radius:12px; background:#fff; cursor:pointer;
+  padding:6px 12px; font-size:14px; font-weight:600; color:#334155; transition:background .15s, transform .05s;
+}
+.btn-ghost:hover { background:#f8fafc; }
+.btn-ghost:active { transform:scale(.98); }
+
+.chips { display:flex; gap:4px; margin-top:6px; }
+.chips span {
+  cursor:pointer; border-radius:6px; background:#f1f5f9; padding:1px 8px;
+  font-size:11px; font-weight:500; color:var(--muted); transition:background .15s, color .15s;
+}
+.chips span:hover { background:var(--brand-50); color:var(--brand); }
+
+.seg { display:inline-flex; background:#f1f5f9; border-radius:12px; padding:4px; width:100%; }
+.seg button {
+  flex:1; border:0; background:transparent; cursor:pointer; border-radius:8px;
+  padding:6px 12px; font-size:14px; font-weight:600; color:var(--muted); transition:.15s;
+}
+.seg button.on { background:#fff; color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+
+.pill {
+  cursor:pointer; user-select:none; border:1px solid var(--line); border-radius:9999px;
+  padding:4px 12px; font-weight:500; color:var(--muted); background:#fff; transition:.15s;
+}
+.pill.on { border-color:var(--brand-500); background:var(--brand-50); color:var(--brand); }
+
+.card {
+  border:1px solid var(--line); background:#fff; border-radius:16px; padding:16px;
+  box-shadow:0 1px 2px rgba(0,0,0,.05); transition:box-shadow .15s;
+}
+.card:hover { box-shadow:0 6px 20px rgba(2,6,23,.07); }
+
+.deal-good { color:#059669; } .deal-warn { color:#d97706; } .deal-bad { color:#e11d48; }
+
+.spinner {
+  width:16px; height:16px; border-radius:9999px; display:inline-block; vertical-align:-3px;
+  border:2px solid #c7d2fe; border-top-color:var(--brand); animation:spin .7s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.fade-in { animation:fade .25s ease both; }
+@keyframes fade { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+
+table.results { width:100%; border-collapse:collapse; font-size:14px; }
+table.results th, table.results td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); }
+table.results th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }

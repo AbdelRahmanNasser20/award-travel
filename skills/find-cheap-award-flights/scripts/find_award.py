@@ -84,6 +84,18 @@ def filter_time(rows, after, before):
     return out
 
 
+def _llm_fallback(page, query, airline):
+    """When deterministic selectors find nothing, try the Groq extraction fallback
+    (no-op unless GROQ_API_KEY is set)."""
+    try:
+        from browser import llm_extract
+        if llm_extract.enabled():
+            return llm_extract.extract_from_page(page, query, airline)
+    except Exception as e:
+        print(f"[{airline}] llm fallback error: {e}", file=sys.stderr)
+    return []
+
+
 # ---------- core search (reused by the web app) ----------
 def run_search(*, origin, dest, start, end, cabin, airlines, weekdays="",
                max_miles=0, after=None, before=None, headless=False):
@@ -110,11 +122,13 @@ def run_search(*, origin, dest, start, end, cabin, airlines, weekdays="",
                 if getattr(mod, "SUPPORTS_METRO", False):
                     q = Query(o_codes, d_codes, start, end, cabin, wd, max_miles, after_t, before_t)
                     rows = mod.scrape(page, q) or []
+                    rows = rows or _llm_fallback(page, q, name)
                 else:  # one airport at a time, then de-dupe
                     rows = []
                     for code in o_codes:
                         q = Query([code], d_codes, start, end, cabin, wd, max_miles, after_t, before_t)
-                        rows.extend(mod.scrape(page, q) or [])
+                        got = mod.scrape(page, q) or []
+                        rows.extend(got or _llm_fallback(page, q, name))
                     rows = airports.merge_dedupe(rows)
                 print(f"[{name}] {len(rows)} rows", file=sys.stderr)
                 pooled.extend(rows)
