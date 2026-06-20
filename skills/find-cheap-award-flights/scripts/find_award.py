@@ -331,6 +331,38 @@ def cmd_refresh(args):
             print(f"{res['fid']}: {res['miles']} mi ({tag})")
 
 
+_LOGIN_SITES = {
+    "United": "https://www.united.com/en/us/account/login",
+    "Delta": "https://www.delta.com/login/home",
+    "American": "https://www.aa.com",
+    "JetBlue": "https://www.jetblue.com",
+}
+
+
+def cmd_login(args):
+    """Open a headed browser on the tool's profile so you can sign in once; the
+    sessions persist for later searches/reloads. Run this in your own Terminal."""
+    from browser import session
+    print("Opening a browser for sign-in. Log into each airline in the tabs that open,\n"
+          "then come back here and press Enter to save the session and close.", file=sys.stderr)
+    with session.open_context(headless=False) as ctx:
+        first = True
+        for name, url in _LOGIN_SITES.items():
+            page = (ctx.pages[0] if (first and ctx.pages) else ctx.new_page())
+            first = False
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            except Exception as e:
+                print(f"[login] {name}: {e}", file=sys.stderr)
+        try:
+            input("\nPress Enter when you've finished logging in… ")
+        except EOFError:
+            print("No interactive stdin; keeping browser open 180s instead.", file=sys.stderr)
+            import time
+            time.sleep(180)
+    print("Session saved to your award-travel Chrome profile.", file=sys.stderr)
+
+
 def cmd_serve(args):
     try:
         import uvicorn  # noqa: F401
@@ -366,6 +398,8 @@ def build_parser():
     f.set_defaults(func=cmd_favorite)
 
     sub.add_parser("list", help="list saved favorites").set_defaults(func=cmd_list)
+
+    sub.add_parser("login", help="sign into airlines once (persists for United/Delta)").set_defaults(func=cmd_login)
 
     r = sub.add_parser("refresh", help="reopen favorite(s) and re-verify miles")
     rg = r.add_mutually_exclusive_group(required=True)
