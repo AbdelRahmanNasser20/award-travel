@@ -24,6 +24,15 @@ from browser import airports
 from browser.airports import Query
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Load scripts/.env so SEATS_AERO_API_KEY / GROQ_API_KEY / AWARD_CHROME_PROFILE are
+# picked up automatically (no-op if python-dotenv isn't installed).
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(SCRIPT_DIR, ".env"))
+except Exception:
+    pass
+
 REPORTS_DIR = os.path.join(SCRIPT_DIR, "reports")
 FAVORITES_DIR = os.path.join(SCRIPT_DIR, "favorites")
 STATE_FILE = os.path.join(REPORTS_DIR, ".last_search.json")
