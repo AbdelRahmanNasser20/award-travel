@@ -79,6 +79,17 @@ class Query:
     max_miles: int = 0
     depart_after: Optional[time] = None
     depart_before: Optional[time] = None
+    # The user's raw origin/dest tokens (e.g. "NYC"). Metro-aware scrapers should use
+    # these so the airline auto-expands nearby airports, instead of a single code.
+    origin_raw: str = ""
+    dest_raw: str = ""
+
+    def origin_search(self) -> str:
+        """Best token to type into a metro-aware airline's origin field."""
+        return self.origin_raw or (self.origin_airports[0] if self.origin_airports else "")
+
+    def dest_search(self) -> str:
+        return self.dest_raw or (self.dest_airports[0] if self.dest_airports else "")
 
     def dates(self) -> List[date]:
         """Every date in [start, end] (inclusive), honoring the weekday filter."""

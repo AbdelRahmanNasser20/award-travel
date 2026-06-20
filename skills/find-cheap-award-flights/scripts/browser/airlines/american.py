@@ -226,9 +226,9 @@ def _scrape_one(page, query, origin, dest, d: date):
 def scrape(page, query) -> list:
     """Search AAdvantage award space across query.dates() and return raw rows."""
     out = []
-    # SUPPORTS_METRO: send the metro string so AA auto-expands NY airports. # VERIFY
-    origin = query.origin_airports[0] if query.origin_airports else ""
-    dest = query.dest_airports[0] if query.dest_airports else ""
+    # SUPPORTS_METRO: send the metro string (e.g. "NYC") so AA auto-expands NY airports.
+    origin = query.origin_search()
+    dest = query.dest_search()
     if not origin or not dest:
         return out
     try:

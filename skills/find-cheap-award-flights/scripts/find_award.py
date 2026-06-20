@@ -129,13 +129,15 @@ def run_search(*, origin, dest, start, end, cabin, airlines, weekdays="",
                 continue
             try:
                 if getattr(mod, "SUPPORTS_METRO", False):
-                    q = Query(o_codes, d_codes, start, end, cabin, wd, max_miles, after_t, before_t)
+                    q = Query(o_codes, d_codes, start, end, cabin, wd, max_miles, after_t, before_t,
+                              origin_raw=origin, dest_raw=dest)
                     rows = mod.scrape(page, q) or []
                     rows = rows or _llm_fallback(page, q, name)
                 else:  # one airport at a time, then de-dupe
                     rows = []
                     for code in o_codes:
-                        q = Query([code], d_codes, start, end, cabin, wd, max_miles, after_t, before_t)
+                        q = Query([code], d_codes, start, end, cabin, wd, max_miles, after_t, before_t,
+                                  origin_raw=code, dest_raw=dest)
                         got = mod.scrape(page, q) or []
                         rows.extend(got or _llm_fallback(page, q, name))
                     rows = airports.merge_dedupe(rows)
